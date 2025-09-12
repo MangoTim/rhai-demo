@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat with Agent</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+      background-color: #f4f4f4;
+    }
+    h2 {
+      color: #333;
+    }
+    #controls {
+      margin-bottom: 20px;
+    }
+    input, button, select {
+      padding: 10px;
+      font-size: 16px;
+      margin-right: 10px;
+    }
+    #response {
+      margin-top: 20px;
+      white-space: pre-wrap;
+      background-color: #fff;
+      padding: 15px;
+      border: 1px solid #ccc;
+      max-width: 700px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Chat with Agent</h2>
+
+  <div id="controls">
+    <label for="modelSelector">Choose Model:</label>
+    <select id="modelSelector">
+      <option value="TinyLlama">TinyLlama</option>
+      <option value="Qwen">Qwen2.5</option>
+      <option value="GPT">GPT2</option>
+    </select>
+
+    <input type="text" id="messageInput" placeholder="Type your message here..." size="50">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <div id="response"></div>
+
+  <script>
+    async function sendMessage() {
+      const message = document.getElementById('messageInput').value;
+      const model = document.getElementById('modelSelector').value;
+      const responseDiv = document.getElementById('response');
+
+    //   if (!message.trim()) {
+    //     responseDiv.textContent = "Please enter a message.";
+    //     return;
+    //   }
+
+      responseDiv.textContent = "Thinking...";
+
+      try {
+        const res = await fetch('http://192.168.147.107:5001/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ message, model })
+        });
+
+        const data = await res.json();
+        responseDiv.textContent = data.response;
+      } catch (error) {
+        responseDiv.textContent = 'Error:\n' + error;
+      }
+    }
+  </script>
+</body>
+</html>
