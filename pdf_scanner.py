@@ -1,10 +1,8 @@
 from flask import Blueprint, request, jsonify
-import fitz  # PyMuPDF
+import fitz
 import psycopg2
 import os
 import glob
-
-# Import your model agents
 from llama_agent import LlamaAgent
 from gpt_agent import GPT
 from qwen_agent import Qwen
