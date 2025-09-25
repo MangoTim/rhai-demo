@@ -142,7 +142,13 @@ def ask_pdf():
     pdf_text = row[0]
     model = get_model()
 
-    prompt = f"Answer the following question based on this document:\n{pdf_text[:3000]}\n\nQuestion: {question}\nAnswer briefly (max 128 tokens):"
+    prompt = f"You are a helpful assistant. Answer the following question based on this document:\n{pdf_text[:3000]}\n\nQuestion: {question}\nAnswer briefly (max 128 tokens):"
+    # prompt = (
+    #     f"You are a helpful assistant. Based on the following document, answer the user's question.\n\n"
+    #     f"{pdf_text}\n\n"
+    #     f"{question}\n\n"
+    #     f"Respond clearly and concisely."
+    # )
     # prompt = f"Answer the following question based only on this document:\n{pdf_text[:3000]}\n\nQuestion: {question}\nAnswer concisely and do not include additional questions or context. Max 128 tokens."
     history = get_recent_history(limit=5)
     history_text = "\n".join([f"{role.capitalize()}: {msg}" for role, msg in history])

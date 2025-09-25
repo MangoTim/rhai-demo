@@ -252,7 +252,12 @@ def chat():
 def get_history():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT role, message FROM chat_history ORDER BY timestamp DESC LIMIT 10")
+    cur.execute("""
+        SELECT role, message FROM chat_history
+        WHERE role IN ('user', 'assistant')
+        ORDER BY timestamp DESC
+        LIMIT 10
+    """)
     rows = cur.fetchall()
     cur.close()
     conn.close()
