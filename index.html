@@ -20,13 +20,25 @@
       font-size: 16px;
       margin-right: 10px;
     }
-    #response {
-      margin-top: 20px;
-      white-space: pre-wrap;
+    #chatHistory, #response {
       background-color: #fff;
-      padding: 15px;
       border: 1px solid #ccc;
+      padding: 15px;
       max-width: 700px;
+      margin-bottom: 20px;
+      white-space: pre-wrap;
+    }
+    #chatHistory {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .user {
+      color: blue;
+      margin-bottom: 5px;
+    }
+    .assistant {
+      color: green;
+      margin-bottom: 5px;
     }
   </style>
 </head>
@@ -34,47 +46,108 @@
   <h2>Chat with Agent</h2>
 
   <div id="controls">
-    <label for="modelSelector">Choose Model:</label>
+    <label for="modelSelector">Model:</label>
     <select id="modelSelector">
       <option value="TinyLlama">TinyLlama</option>
       <option value="Qwen">Qwen2.5</option>
-      <option value="GPT">GPT2</option>
+      <option value="GPT-2">GPT2</option>
     </select>
 
-    <input type="text" id="messageInput" placeholder="Type your message here..." size="50">
+    <input type="text" id="messageInput" placeholder="Type your message or question..." size="50">
     <button onclick="sendMessage()">Send</button>
   </div>
 
+  <div style="margin-top: 30px; margin-bottom: 30px;">
+    <input type="file" id="pdfInput">
+    <button onclick="uploadPDF()">Upload PDF</button>
+    <button onclick="removePDF()">Remove PDF</button>
+  </div>
+
   <div id="response"></div>
+  <div id="chatHistory"></div>
 
   <script>
+    let pdfScanned = false;
+
+    async function loadChatHistory() {
+      try {
+        const res = await fetch('http://192.168.147.108:5000/history');
+        const history = await res.json();
+        const container = document.getElementById('chatHistory');
+        container.innerHTML = history.map(h =>
+          `<div class="${h.role}"><strong>${h.role}:</strong> ${h.message}</div>`
+        ).join('');
+        container.scrollTop = container.scrollHeight;
+      } catch (error) {
+        console.error("Failed to load chat history:", error);
+      }
+    }
+
     async function sendMessage() {
       const message = document.getElementById('messageInput').value;
       const model = document.getElementById('modelSelector').value;
       const responseDiv = document.getElementById('response');
 
-    //   if (!message.trim()) {
-    //     responseDiv.textContent = "Please enter a message.";
-    //     return;
-    //   }
-
       responseDiv.textContent = "Thinking...";
 
       try {
-        const res = await fetch('http://192.168.147.107:5001/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ message, model })
-        });
+        let res;
+        if (pdfScanned) {
+          res = await fetch('http://192.168.147.108:5000/ask_pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: message })
+          });
+        } else {
+          res = await fetch('http://192.168.147.108:5000/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, model })
+          });
+        }
 
         const data = await res.json();
-        responseDiv.textContent = data.response;
+        responseDiv.textContent = data.response || data.answer || 'No response';
+        document.getElementById('messageInput').value = "";
+        loadChatHistory();
       } catch (error) {
         responseDiv.textContent = 'Error:\n' + error;
       }
     }
+
+    async function uploadPDF() {
+      const file = document.getElementById("pdfInput").files[0];
+      const formData = new FormData();
+      formData.append("pdf", file);
+
+      try {
+        const res = await fetch('http://192.168.147.108:5000/upload_pdf', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        pdfScanned = true;
+        document.getElementById("response").textContent =
+          `PDF scanned and saved: ${data.filename}`;
+      } catch (error) {
+        document.getElementById("response").textContent = 'Upload failed: ' + error;
+      }
+    }
+
+    async function removePDF() {
+      try {
+        const res = await fetch('http://192.168.147.108:5000/remove_pdf', {
+          method: 'POST'
+        });
+        const data = await res.json();
+        pdfScanned = false;
+        document.getElementById("response").textContent = data.message || "PDF removed.";
+      } catch (error) {
+        document.getElementById("response").textContent = 'Remove failed: ' + error;
+      }
+    }
+
+    window.onload = loadChatHistory;
   </script>
 </body>
 </html>
