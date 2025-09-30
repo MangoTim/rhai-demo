@@ -1,68 +1,43 @@
 from flask import Blueprint, request, jsonify
-import fitz
-import psycopg2
+import fitz # PyMuPDF
 import os
 import glob
-from llama_agent import LlamaAgent
-from gpt_agent import GPT
-from qwen_agent import Qwen
+from werkzeug.utils import secure_filename
+from modules import get_db_connection, log_message
+from model.llama_agent import LlamaAgent
+from model.gpt_agent import GPTAgent
+from model.qwen_agent import QwenAgent
+from model.redhat_test import RedhatAgent
+from model.deepseek_agent import DeepSeekAgent
 
 pdf_scanner = Blueprint("pdf_scanner", __name__)
 model_cache = {}
 
 def get_model(model_key="TinyLlama"):
-    if model_key == "TinyLlama":
-        if "TinyLlama" not in model_cache:
-            model_cache["TinyLlama"] = LlamaAgent()
-        return model_cache["TinyLlama"]
-    elif model_key == "GPT-2":
-        if "GPT-2" not in model_cache:
-            model_cache["GPT-2"] = GPT()
-        return model_cache["GPT-2"]
-    elif model_key == "Qwen":
-        if "Qwen" not in model_cache:
-            model_cache["Qwen"] = Qwen()
-        return model_cache["Qwen"]
-    else:
-        return LlamaAgent()  # fallback
+    if model_key not in model_cache:
+        print(f"Initializing model: {model_key}", flush=True)
+        if model_key == "GPT-2":
+            model_cache[model_key] = GPTAgent()
+        elif model_key == "Qwen":
+            model_cache[model_key] = QwenAgent()
+        # elif model_key == "DeepSeek":
+        #     model_cache[model_key] = DeepSeekAgent()
+        elif model_key == "RedHat":
+            model_cache[model_key] = RedhatAgent()
+        else:
+            print(f"Unknown model_key '{model_key}', falling back to TinyLlama", flush=True)
+            model_cache[model_key] = LlamaAgent()
+    print(f"Using model: {model_key}", flush=True)
+    return model_cache[model_key]
 
-def get_db_connection():
-    return psycopg2.connect(
-        dbname="rhai_table",
-        user="rhai",
-        password="redhat",
-        host="192.168.147.103",
-        port=5432
-    )
-
-def extract_pdf_text(file_path):
+def extract_pdf_text(file_path, max_chars=10000):
     doc = fitz.open(file_path)
-    return "\n".join(page.get_text() for page in doc)
-
-def log_message(role, message):
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    # Insert new message
-    cur.execute("INSERT INTO chat_history (role, message) VALUES (%s, %s)", (role, message))
-    conn.commit()
-
-    # Keep only latest 10 messages (5 pairs)
-    cur.execute("""
-        DELETE FROM chat_history
-        WHERE id NOT IN (
-            SELECT id FROM (
-                SELECT id
-                FROM chat_history
-                WHERE role IN ('user', 'assistant')
-                ORDER BY timestamp DESC
-                LIMIT 10
-            ) AS latest_pairs
-        );
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
+    text = ""
+    for page in doc:
+        text += page.get_text()
+        if len(text) > max_chars:
+            break
+    return text
 
 def clean_folder(folder_path):
     for filename in os.listdir(folder_path):
@@ -71,119 +46,99 @@ def clean_folder(folder_path):
             os.remove(file_path)
             print(f"Removed file: {file_path}", flush=True)
 
+
 @pdf_scanner.route("/upload_pdf", methods=["POST"])
 def upload_pdf():
-    file = request.files.get("pdf")
-    if not file:
-        return jsonify({"error": "No file uploaded"}), 400
+    try:
+        file = request.files.get("pdf")
+        if not file:
+            return jsonify({"error": "No file uploaded"}), 400
 
-    os.makedirs("uploads", exist_ok=True)
+        os.makedirs("uploads", exist_ok=True)
+        clean_folder("uploads")
 
-    # for old_file in glob.glob("uploads/*.pdf"):
-    #     os.remove(old_file)
-    #     print(f"Removed old file: {old_file}", flush=True)
+        filename = secure_filename(file.filename)
+        file_path = os.path.join("uploads", filename)
+        file.save(file_path)
+        print(f"File saved to: {file_path}", flush=True)
 
-    clean_folder("uploads")
+        text = extract_pdf_text(file_path)
 
-    file_path = os.path.join("uploads", file.filename)
-    file.save(file_path)
-    print(f"File saved to: {file_path}", flush=True)
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM pdf_documents")
+        cur.execute("""
+            INSERT INTO pdf_documents (title, content, uploaded_at)
+            VALUES (%s, %s, NOW())
+        """, (filename, text))
+        conn.commit()
+        cur.close()
+        conn.close()
 
-    text = extract_pdf_text(file_path)
-
-    # Clean up database
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM pdf_documents")
-    print("PDF history has been cleaned up.", flush=True)
-
-    # Insert new PDF (no summary column)
-    cur.execute("""
-        INSERT INTO pdf_documents (title, content, uploaded_at)
-        VALUES (%s, %s, NOW())
-    """, (file.filename, text))
-    conn.commit()
-    print(f"Inserted new PDF into database: {file.filename}", flush=True)
-
-    cur.close()
-    conn.close()
-
-    return jsonify({"status": "scanned", "filename": file.filename})
+        print(f"Inserted new PDF into database: {filename}", flush=True)
+        return jsonify({"status": "scanned", "filename": filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @pdf_scanner.route("/ask_pdf", methods=["POST"])
 def ask_pdf():
-    data = request.get_json()
-    question = data.get("question")
+    try:
+        data = request.get_json()
+        question = data.get("question")
+        model_key = data.get("model", "TinyLlama")
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT content FROM pdf_documents ORDER BY uploaded_at DESC LIMIT 1")
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+        supported_models = ["TinyLlama", "GPT-2", "Qwen", "RedHat"]
+        if model_key not in supported_models:
+            return jsonify({"error": f"Unsupported model: {model_key}"}), 400
 
-    def get_recent_history(limit=5):
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT role, message FROM chat_history
-            WHERE role IN ('user', 'assistant')
-            ORDER BY timestamp DESC
-            LIMIT %s
-        """, (limit * 2,))
-        rows = cur.fetchall()
+        cur.execute("SELECT content FROM pdf_documents ORDER BY uploaded_at DESC LIMIT 1")
+        row = cur.fetchone()
         cur.close()
         conn.close()
-        return list(reversed(rows))  # Oldest first
 
-    if not row:
-        return jsonify({"error": "No PDF found"}), 404
+        if not row:
+            return jsonify({"error": "No PDF found"}), 404
 
-    pdf_text = row[0]
-    model = get_model()
+        pdf_text = row[0]
+        model = get_model(model_key)
 
-    prompt = f"You are a helpful assistant. Answer the following question based on this document:\n{pdf_text[:3000]}\n\nQuestion: {question}\nAnswer briefly (max 128 tokens):"
-    # prompt = (
-    #     f"You are a helpful assistant. Based on the following document, answer the user's question.\n\n"
-    #     f"{pdf_text}\n\n"
-    #     f"{question}\n\n"
-    #     f"Respond clearly and concisely."
-    # )
-    # prompt = f"Answer the following question based only on this document:\n{pdf_text[:3000]}\n\nQuestion: {question}\nAnswer concisely and do not include additional questions or context. Max 128 tokens."
-    history = get_recent_history(limit=5)
-    history_text = "\n".join([f"{role.capitalize()}: {msg}" for role, msg in history])
-    # prompt = (
-    #     f"You are a helpful assistant. Based on the following document and recent conversation, answer the user's next question.\n\n"
-    #     f"{pdf_text[:3000]}\n\n"
-    #     f"{history_text}\n\n"
-    #     f"{question}"
-    # )
-    result = model(prompt, max_new_tokens=128)
-    answer = result[0]["generated_text"].strip()
+        prompt = (
+            f"You are a helpful assistant. Answer the following question based on this document:\n"
+            f"{pdf_text}\n\n"
+            f"Question: {question}\n"
+            f"Answer briefly (max 128 tokens):"
+        )
 
-    if answer.startswith(prompt):
-        answer = answer[len(prompt):].strip()
+        print("Raw model output:\n", prompt, flush=True)
 
-    # Log both user question and assistant answer
-    log_message("user", question)
-    log_message("assistant", answer)
+        result = model(prompt, max_new_tokens=128)
+        answer = result[0]["generated_text"].strip()
 
-    # print("Final prompt sent to model:\n", prompt, flush=True)
+        if answer.startswith(prompt):
+            answer = answer[len(prompt):].strip()
 
-    return jsonify({"answer": answer})
+        log_message("user", question)
+        log_message("assistant", answer)
+
+        return jsonify({"answer": answer})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @pdf_scanner.route("/remove_pdf", methods=["POST"])
 def remove_pdf():
-    # Delete from DB
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM pdf_documents")
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM pdf_documents")
+        conn.commit()
+        cur.close()
+        conn.close()
 
-    # Delete uploaded files
-    for file in glob.glob("uploads/*.pdf"):
-        os.remove(file)
+        for file in glob.glob("uploads/*.pdf"):
+            os.remove(file)
 
-    return jsonify({"message": "PDF removed from database and uploads."})
+        return jsonify({"message": "PDF removed from database and uploads."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
