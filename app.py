@@ -1,12 +1,15 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
-from pdf_scanner import pdf_scanner
-from chat_route import chat_route
+from route.pdf_scanner import pdf_scanner
+from route.chat_route import chat_route
 from modules import get_db_connection
-from history_route import history_route
+from route.history_route import history_route
+
+from flasgger import Swagger
 
 
 app = Flask(__name__)
+swagger = Swagger(app)
 CORS(app)
 app.register_blueprint(pdf_scanner)
 

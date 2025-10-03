@@ -3,44 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Chat with Agent</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 40px;
-      background-color: #f4f4f4;
-    }
-    h2 {
-      color: #333;
-    }
-    #controls {
-      margin-bottom: 20px;
-    }
-    input, button, select {
-      padding: 10px;
-      font-size: 16px;
-      margin-right: 10px;
-    }
-    #chatHistory, #response {
-      background-color: #fff;
-      border: 1px solid #ccc;
-      padding: 15px;
-      max-width: 700px;
-      margin-bottom: 20px;
-      white-space: pre-wrap;
-    }
-    #chatHistory {
-      max-height: 300px;
-      overflow-y: auto;
-    }
-    .user {
-      color: blue;
-      margin-bottom: 5px;
-    }
-    .assistant {
-      color: green;
-      margin-bottom: 5px;
-    }
-  </style>
+  <link rel="stylesheet" href="styles.css">
+
 </head>
 <body>
   <h2>Chat with Agent</h2>
@@ -51,6 +15,8 @@
       <option value="TinyLlama">TinyLlama</option>
       <option value="Qwen">Qwen2.5</option>
       <option value="GPT-2">GPT2</option>
+      <option value="DeepSeek">DeepSeek</option>
+      <option value="RedHat">Redhat</option>
     </select>
 
     <input type="text" id="messageInput" placeholder="Type your message or question..." size="50">
@@ -87,6 +53,7 @@
       const message = document.getElementById('messageInput').value;
       const model = document.getElementById('modelSelector').value;
       const responseDiv = document.getElementById('response');
+      const startTime = performance.now();
 
       responseDiv.textContent = "Thinking...";
 
@@ -96,7 +63,7 @@
           res = await fetch('http://192.168.147.108:5000/ask_pdf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question: message })
+            body: JSON.stringify({ question: message, model })
           });
         } else {
           res = await fetch('http://192.168.147.108:5000/chat', {
@@ -107,7 +74,13 @@
         }
 
         const data = await res.json();
-        responseDiv.textContent = data.response || data.answer || 'No response';
+
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        
+        responseDiv.textContent = `Response time: ${duration} seconds\n\n` + (data.response || data.answer || 'No response');
+        // responseDiv.textContent = `Response time: ${duration} seconds\n\n` + data.response || data.answer || 'No response';
+        // responseDiv.textContent = data.response || data.answer || 'No response';
         document.getElementById('messageInput').value = "";
         loadChatHistory();
       } catch (error) {

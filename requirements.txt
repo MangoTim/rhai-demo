@@ -6,3 +6,4 @@ accelerate==1.10.1
 
 PyMuPDF==1.23.6
 psycopg2-binary==2.9.9
+flasgger>=0.9.5

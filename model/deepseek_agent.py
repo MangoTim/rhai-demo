@@ -1,9 +1,9 @@
 import requests
 
-class RedhatAgent:
+class DeepSeekAgent:
     def __init__(self):
-        self.model_name = "RedHatAI/Llama-3.2-1B-Instruct-FP8"
-        self.api_url = "http://modelserver:5001/v1/completions"
+        self.model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+        self.api_url = "http://modelserver:5000/v1/completions"
 
     def __call__(self, prompt, **kwargs):
         print(f"Using model: {self.model_name}", flush=True)
@@ -14,7 +14,7 @@ class RedhatAgent:
             "max_tokens": kwargs.get("max_new_tokens", 128),
             "temperature": kwargs.get("temperature", 0.7),
             "top_p": kwargs.get("top_p", 1.0),
-            # "top_k": kwargs.get("top_k", -1),
+            "top_k": kwargs.get("top_k", 0),
             "do_sample": kwargs.get("do_sample", False)
         }
 

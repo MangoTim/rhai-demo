@@ -1,8 +1,12 @@
 from flask import request, jsonify
 from modules import get_model, get_context_from_keywords, log_message, clean_reply
 
+from flasgger import swag_from
+from api_docs.chat_route_docs import chat_doc
+
 def chat_route(app):
     @app.route("/chat", methods=["POST"])
+    @swag_from(chat_doc)
     def chat():
         data = request.get_json()
         user_message = data.get("message", "")
@@ -57,11 +61,12 @@ def chat_route(app):
             {"role": "user", "content": f"{context}\n\n{user_message}" if context else user_message}
         ] if is_chat_model else None
 
-        if is_chat_model and has_tokenizer:
-            prompt = agent.tokenizer.apply_chat_template(messages, tokenize=False)
-        elif not is_chat_model and has_tokenizer:
-            prompt_text = f"{context}\n\nUser asked: {user_message}\nAnswer:" if context else user_message
-            prompt = agent.tokenizer.decode(agent.tokenizer.encode(prompt_text, max_length=896, truncation=True))
+        if has_tokenizer:
+            if is_chat_model:
+                prompt = agent.tokenizer.apply_chat_template(messages, tokenize=False)
+            else:
+                prompt_text = f"{context}\n\nUser asked: {user_message}\nAnswer:" if context else user_message
+                prompt = agent.tokenizer.decode(agent.tokenizer.encode(prompt_text, max_length=896, truncation=True))
         else:
             prompt = f"{context}\n\n{user_message}" if context else user_message
 

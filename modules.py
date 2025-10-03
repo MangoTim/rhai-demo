@@ -35,10 +35,10 @@ def get_model(model_key):
             model_cache["qwen"] = QwenAgent()
         return model_cache["qwen"], True, True
 
-    # elif key == "deepseek":
-    #     if "deepseek" not in model_cache:
-    #         model_cache["deepseek"] = DeepSeekAgent()
-    #     return model_cache["deepseek"], False, True
+    elif key == "deepseek":
+        if "deepseek" not in model_cache:
+            model_cache["deepseek"] = DeepSeekAgent()
+        return model_cache["deepseek"], True, False
 
     elif key == "redhat":
         if "redhat" not in model_cache:

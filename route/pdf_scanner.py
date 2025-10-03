@@ -1,42 +1,36 @@
 from flask import Blueprint, request, jsonify
-import fitz # PyMuPDF
+import fitz  # PyMuPDF
 import os
 import glob
 from werkzeug.utils import secure_filename
-from modules import get_db_connection, log_message
+from transformers import AutoTokenizer
+from modules import get_db_connection, log_message, clean_reply, get_model
+
 from model.llama_agent import LlamaAgent
 from model.gpt_agent import GPTAgent
 from model.qwen_agent import QwenAgent
 from model.redhat_test import RedhatAgent
 from model.deepseek_agent import DeepSeekAgent
 
+from flasgger import swag_from
+from api_docs.pdf_scanner_docs import upload_pdf_doc, ask_pdf_doc, remove_pdf_doc
+
 pdf_scanner = Blueprint("pdf_scanner", __name__)
 model_cache = {}
 
-def get_model(model_key="TinyLlama"):
-    if model_key not in model_cache:
-        print(f"Initializing model: {model_key}", flush=True)
-        if model_key == "GPT-2":
-            model_cache[model_key] = GPTAgent()
-        elif model_key == "Qwen":
-            model_cache[model_key] = QwenAgent()
-        # elif model_key == "DeepSeek":
-        #     model_cache[model_key] = DeepSeekAgent()
-        elif model_key == "RedHat":
-            model_cache[model_key] = RedhatAgent()
-        else:
-            print(f"Unknown model_key '{model_key}', falling back to TinyLlama", flush=True)
-            model_cache[model_key] = LlamaAgent()
-    print(f"Using model: {model_key}", flush=True)
-    return model_cache[model_key]
+MODEL_TOKEN_LIMITS = {
+    "tinyllama": 2048,
+    "gpt-2": 1024,
+    "qwen": 32000,
+    "redhat": 4096,
+    "deepseek": 4096
+}
 
-def extract_pdf_text(file_path, max_chars=10000):
+def extract_pdf_text(file_path):
     doc = fitz.open(file_path)
     text = ""
     for page in doc:
         text += page.get_text()
-        if len(text) > max_chars:
-            break
     return text
 
 def clean_folder(folder_path):
@@ -46,8 +40,8 @@ def clean_folder(folder_path):
             os.remove(file_path)
             print(f"Removed file: {file_path}", flush=True)
 
-
 @pdf_scanner.route("/upload_pdf", methods=["POST"])
+@swag_from(upload_pdf_doc)
 def upload_pdf():
     try:
         file = request.files.get("pdf")
@@ -81,14 +75,15 @@ def upload_pdf():
         return jsonify({"error": str(e)}), 500
 
 @pdf_scanner.route("/ask_pdf", methods=["POST"])
+@swag_from(ask_pdf_doc)
 def ask_pdf():
     try:
         data = request.get_json()
         question = data.get("question")
         model_key = data.get("model", "TinyLlama")
 
-        supported_models = ["TinyLlama", "GPT-2", "Qwen", "RedHat"]
-        if model_key not in supported_models:
+        model, is_chat_model, has_tokenizer = get_model(model_key)
+        if not model:
             return jsonify({"error": f"Unsupported model: {model_key}"}), 400
 
         conn = get_db_connection()
@@ -102,7 +97,16 @@ def ask_pdf():
             return jsonify({"error": "No PDF found"}), 404
 
         pdf_text = row[0]
-        model = get_model(model_key)
+
+        # Token-aware truncation
+        token_limit = MODEL_TOKEN_LIMITS.get(model_key.strip().lower(), 2048)
+        reserved_tokens = 200
+        max_pdf_tokens = token_limit - reserved_tokens
+
+        if has_tokenizer and model_key.strip().lower() == "tinyllama":
+            tokenizer = AutoTokenizer.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+            encoded = tokenizer.encode(pdf_text, truncation=True, max_length=max_pdf_tokens)
+            pdf_text = tokenizer.decode(encoded)
 
         prompt = (
             f"You are a helpful assistant. Answer the following question based on this document:\n"
@@ -111,7 +115,7 @@ def ask_pdf():
             f"Answer briefly (max 128 tokens):"
         )
 
-        print("Raw model output:\n", prompt, flush=True)
+        # print("Raw model prompt:\n", prompt, flush=True)
 
         result = model(prompt, max_new_tokens=128)
         answer = result[0]["generated_text"].strip()
@@ -126,7 +130,8 @@ def ask_pdf():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@pdf_scanner.route("/remove_pdf", methods=["POST"])
+@pdf_scanner.route("/remove_pdf", methods=["DELETE"])
+@swag_from(remove_pdf_doc)
 def remove_pdf():
     try:
         conn = get_db_connection()

@@ -1,0 +1,43 @@
+body {
+  font-family: Arial, sans-serif;
+  margin: 40px;
+  background-color: #f4f4f4;
+}
+
+h2 {
+  color: #333;
+}
+
+#controls {
+  margin-bottom: 20px;
+}
+
+input, button, select {
+  padding: 10px;
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+#chatHistory, #response {
+  background-color: #fff;
+  border: 1px solid #ccc;
+  padding: 15px;
+  max-width: 700px;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+}
+
+#chatHistory {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.user {
+  color: blue;
+  margin-bottom: 5px;
+}
+
+.assistant {
+  color: green;
+  margin-bottom: 5px;
+}
